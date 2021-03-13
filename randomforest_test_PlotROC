@@ -89,5 +89,6 @@ while true
     plot(FPR, TPR, label = "roc")
     plot!([0, 1], [0, 1], label = "benchmark")
     scatter!(FPR, TPR, label = "point")
+    savefig("D:/test/roc.png")
     break
 end
