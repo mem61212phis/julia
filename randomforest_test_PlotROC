@@ -1,0 +1,93 @@
+using Plots, WAV, PyCall, Printf, CSV, DataFrames, Plots, DecisionTree, JLD2
+@pyimport python_speech_features
+
+"""
+            真實+         真實-
+檢驗+      真陽性(TP)	偽陽性(FP)
+檢驗-      偽陰性(FN)	真陰性(TN)
+敏感度(Sensitivity) = TP / (TP+FN)  正確診斷有事的機率
+特異度(Specificity) = TN / (FN+TN)  正確診斷沒事的機率
+偽陽性率(False Positive Rate; FPR) = FP / (TN+FP) 沒事被診斷成有事的機率
+偽陰性率(False Negative Rate; FNR) = FN / (TP+FN) 有事被診斷成沒事的機率
+準確度(Accuracy; ACC) = (TP+TN) / (FN+TN+TP+FN) 正確診斷的機率
+"""
+
+@load "D:/test/voice_data/model_file.jld2" model
+while true
+    TPR, FPR = [], []
+    scr_list, nonscr_list = [], []
+    x = 0.1
+    for i in 1:300    #test Negative(nonscream)
+        number = @sprintf("%05d", i)
+        open("D:/test/voice_data/nonscream/test_csv/$number.csv", "r") do f
+            train_data = CSV.read(f, header = 0, delim = ",")
+            test_x=convert(Matrix, train_data)
+            rate = apply_forest_proba(model, test_x, [1, 2])
+            scream, nonscream = 0, 0
+            for i in 1:length(rate[:, 1])
+                if rate[i, 1] != 0
+                    nonscream += log10(rate[i, 1])
+                else
+                    nonscream -= 6
+                end
+                if rate[i, 2] != 0
+                    scream += log10(rate[i, 2])
+                else
+                    scream -= 6
+                end
+            end
+            push!(nonscr_list, (nonscream - scream) / length(rate))
+        end
+    end
+    for i in 1:54     #test Positive(scream)
+        number = @sprintf("%05d", i)
+        open("D:/test/voice_data/findsoundscom/1-60csv/$number.csv", "r") do f
+            train_data = CSV.read(f, header = 0, delim = ",")
+            test_x=convert(Matrix, train_data)
+            rate = apply_forest_proba(model, test_x, [1, 2])
+            scream, nonscream = 0, 0
+            for i in 1:length(rate[:, 1])
+                if rate[i, 1] != 0
+                    nonscream += log10(rate[i, 1])
+                else
+                    nonscream -= 6
+                end
+                if rate[i, 2] != 0
+                    scream += log10(rate[i, 2])
+                else
+                    scream -= 6
+                end
+            end
+            push!(scr_list, (scream - nonscream) / length(rate))
+        end
+    end
+    for i in -35:35
+        TP, FN, FP, TN = 0, 0, 0, 0
+        for j in scr_list
+            if j + x*i > 0
+                TN += 1
+            else
+                FP += 1
+            end
+        end
+        for j in nonscr_list
+            if j + x*i > 0
+                TP += 1
+            else
+                FN += 1
+            end
+        end
+        push!(TPR, TP/(TP+FN))
+        push!(FPR, TN/(TN+FP))
+
+    end
+    println(TPR)
+    println(FPR)
+    default(xlabel = "FPR", ylabel = "TPR", size = (1200,900))
+    default(xlims = (-0.05, 1.1), ylims = (-0.05, 1.15))
+    default(xticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0], yticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    plot(FPR, TPR, label = "roc")
+    plot!([0, 1], [0, 1], label = "benchmark")
+    scatter!(FPR, TPR, label = "point")
+    break
+end
