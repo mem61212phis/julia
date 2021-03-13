@@ -1,0 +1,89 @@
+using WAV, PyCall, Printf, CSV, DataFrames, Plots, DecisionTree, JLD2
+@pyimport python_speech_features
+
+touch("D:/test/voice_data/nonscream/train.csv")
+touch("D:/test/voice_data/scream/train.csv")
+touch("D:/test/voice_data/train.csv")
+
+for i in 1:2700  #make train csv from nonscream
+    number = @sprintf("%05d", i)
+    wavdata = wavread("D:/test/voice_data/nonscream/train/$number.wav"; format="Int16")
+    fbank_feat= python_speech_features.base.logfbank(wavdata[1], wavdata[2])
+    a =  Int64(length(fbank_feat) / 26)
+    df = DataFrame(:a => fbank_feat[1:a, 1], :b => fbank_feat[1:a, 2], :c => fbank_feat[1:a, 3],
+    :d => fbank_feat[1:a, 4], :e => fbank_feat[1:a, 5], :f => fbank_feat[1:a, 6], :g => fbank_feat[1:a, 7],
+    :h => fbank_feat[1:a, 8], :i => fbank_feat[1:a, 9], :j => fbank_feat[1:a, 10], :k => fbank_feat[1:a, 11],
+    :l => fbank_feat[1:a, 12], :m => fbank_feat[1:a, 13], :n => fbank_feat[1:a, 14], :o => fbank_feat[1:a, 15],
+    :p => fbank_feat[1:a, 16], :q => fbank_feat[1:a, 17], :r => fbank_feat[1:a, 18], :s => fbank_feat[1:a, 19],
+    :t => fbank_feat[1:a, 20], :u => fbank_feat[1:a, 21], :v => fbank_feat[1:a, 22], :w => fbank_feat[1:a, 23],
+    :x => fbank_feat[1:a, 24], :y => fbank_feat[1:a, 25], :z => fbank_feat[1:a, 26])
+    open("D:/test/voice_data/nonscream/train.csv", "a") do file
+        CSV.write(file, df; append=true)
+    end
+end
+for i in 1:450   #make train csv from scream
+    number = @sprintf("%05d", i)
+    wavdata = wavread("D:/test/voice_data/scream/train/$number.wav"; format="Int16")
+    fbank_feat= python_speech_features.base.logfbank(wavdata[1], wavdata[2])
+    a =  Int64(length(fbank_feat) / 26)
+    df = DataFrame(:a => fbank_feat[1:a, 1], :b => fbank_feat[1:a, 2], :c => fbank_feat[1:a, 3],
+    :d => fbank_feat[1:a, 4], :e => fbank_feat[1:a, 5], :f => fbank_feat[1:a, 6], :g => fbank_feat[1:a, 7],
+    :h => fbank_feat[1:a, 8], :i => fbank_feat[1:a, 9], :j => fbank_feat[1:a, 10], :k => fbank_feat[1:a, 11],
+    :l => fbank_feat[1:a, 12], :m => fbank_feat[1:a, 13], :n => fbank_feat[1:a, 14], :o => fbank_feat[1:a, 15],
+    :p => fbank_feat[1:a, 16], :q => fbank_feat[1:a, 17], :r => fbank_feat[1:a, 18], :s => fbank_feat[1:a, 19],
+    :t => fbank_feat[1:a, 20], :u => fbank_feat[1:a, 21], :v => fbank_feat[1:a, 22], :w => fbank_feat[1:a, 23],
+    :x => fbank_feat[1:a, 24], :y => fbank_feat[1:a, 25], :z => fbank_feat[1:a, 26])
+    open("D:/test/voice_data/scream/train.csv", "a") do file
+        CSV.write(file, df; append=true)
+    end
+end
+
+for i in 1:300   #make test csv from nonscream
+    number = @sprintf("%05d", i)
+    touch("D:/test/voice_data/nonscream/test_csv/$number.csv")
+    wavdata = wavread("D:/test/voice_data/nonscream/test/$number.wav"; format="Int16")
+    fbank_feat= python_speech_features.base.logfbank(wavdata[1], wavdata[2])
+    a =  Int64(length(fbank_feat) / 26)
+    df = DataFrame(:a => fbank_feat[1:a, 1], :b => fbank_feat[1:a, 2], :c => fbank_feat[1:a, 3],
+    :d => fbank_feat[1:a, 4], :e => fbank_feat[1:a, 5], :f => fbank_feat[1:a, 6], :g => fbank_feat[1:a, 7],
+    :h => fbank_feat[1:a, 8], :i => fbank_feat[1:a, 9], :j => fbank_feat[1:a, 10], :k => fbank_feat[1:a, 11],
+    :l => fbank_feat[1:a, 12], :m => fbank_feat[1:a, 13], :n => fbank_feat[1:a, 14], :o => fbank_feat[1:a, 15],
+    :p => fbank_feat[1:a, 16], :q => fbank_feat[1:a, 17], :r => fbank_feat[1:a, 18], :s => fbank_feat[1:a, 19],
+    :t => fbank_feat[1:a, 20], :u => fbank_feat[1:a, 21], :v => fbank_feat[1:a, 22], :w => fbank_feat[1:a, 23],
+    :x => fbank_feat[1:a, 24], :y => fbank_feat[1:a, 25], :z => fbank_feat[1:a, 26])
+    open("D:/test/voice_data/nonscream/test_csv/$number.csv", "a") do file
+        CSV.write(file, df; append=true)
+    end
+end
+for i in 1:50    #make test csv from scream
+    number = @sprintf("%05d", i)
+    touch("D:/test/voice_data/scream/test_csv/$number.csv")
+    wavdata = wavread("D:/test/voice_data/scream/test/$number.wav"; format="Int16")
+    fbank_feat= python_speech_features.base.logfbank(wavdata[1], wavdata[2])
+    a =  Int64(length(fbank_feat) / 26)
+    df = DataFrame(:a => fbank_feat[1:a, 1], :b => fbank_feat[1:a, 2], :c => fbank_feat[1:a, 3],
+    :d => fbank_feat[1:a, 4], :e => fbank_feat[1:a, 5], :f => fbank_feat[1:a, 6], :g => fbank_feat[1:a, 7],
+    :h => fbank_feat[1:a, 8], :i => fbank_feat[1:a, 9], :j => fbank_feat[1:a, 10], :k => fbank_feat[1:a, 11],
+    :l => fbank_feat[1:a, 12], :m => fbank_feat[1:a, 13], :n => fbank_feat[1:a, 14], :o => fbank_feat[1:a, 15],
+    :p => fbank_feat[1:a, 16], :q => fbank_feat[1:a, 17], :r => fbank_feat[1:a, 18], :s => fbank_feat[1:a, 19],
+    :t => fbank_feat[1:a, 20], :u => fbank_feat[1:a, 21], :v => fbank_feat[1:a, 22], :w => fbank_feat[1:a, 23],
+    :x => fbank_feat[1:a, 24], :y => fbank_feat[1:a, 25], :z => fbank_feat[1:a, 26])
+    open("D:/test/voice_data/scream/test_csv/$number.csv", "a") do file
+        CSV.write(file, df; append=true)
+    end
+end
+
+open("D:/test/voice_data/nonscream/train.csv", "r") do file1
+    nonscream = CSV.read(file1, header = 0, delim = ",")
+    nonscream.Column27=[1 for i in 1:length(nonscream.Column1)]
+    open("D:/test/voice_data/train.csv", "a") do file
+        CSV.write(file, nonscream; append=true)
+    end
+end
+open("D:/test/voice_data/scream/train.csv", "r") do file2
+    scream = CSV.read(file2, header = 0, delim = ",")
+    scream.Column27=[2 for i in 1:length(scream.Column1)]
+    open("D:/test/voice_data/train.csv", "a") do file
+        CSV.write(file, scream; append=true)
+    end
+end

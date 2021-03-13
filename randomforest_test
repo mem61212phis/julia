@@ -1,0 +1,74 @@
+using WAV, PyCall, Printf, CSV, DataFrames, Plots, DecisionTree, JLD2
+@pyimport python_speech_features
+@load "D:/test/voice_data/model_file.jld2" model
+"""
+            真實+         真實-
+檢驗+      真陽性(TP)	偽陽性(FP)
+檢驗-      偽陰性(FN)	真陰性(TN)
+敏感度(Sensitivity) = TP / (TP+FN)  正確診斷有事的機率
+特異度(Specificity) = TN / (FN+TN)  正確診斷沒事的機率
+偽陽性率(False Positive Rate; FPR) = FP / (TN+FP) 沒事被檢驗成有事的機率
+偽陰性率(False Negative Rate; FNR) = FN / (TP+FN) 有事被檢驗成沒事的機率
+準確度(Accuracy; ACC) = (TP+TN) / (FN+TN+TP+FN) 正確診斷的機率
+"""
+
+while true
+    x = 0.05
+    TP, FN, FP, TN = 0, 0, 0, 0
+    for i in 1:300    #test Negative(nonscream)
+        number = @sprintf("%05d", i)
+        open("D:/test/voice_data/nonscream/test_csv/$number.csv", "r") do f
+            train_data = CSV.read(f, header = 0, delim = ",")
+            test_x=convert(Matrix, train_data)
+            rate = apply_forest_proba(model, test_x, [1, 2])
+            scream, nonscream = 0, 0
+            for i in 1:length(rate[:, 1])
+                if rate[i, 1] != 0
+                    nonscream += log10(rate[i, 1])
+                else
+                    nonscream -= 6
+                end
+                if rate[i, 2] != 0
+                    scream += log10(rate[i, 2])
+                else
+                    scream -= 6
+                end
+            end
+            if scream < nonscream + x*length(rate)
+                TN += 1
+            else
+                FP += 1
+            end
+        end
+    end
+    for i in 1:54     #test Positive(scream)
+        number = @sprintf("%05d", i)
+        open("D:/test/voice_data/findsoundscom/1-60csv/$number.csv", "r") do f
+            train_data = CSV.read(f, header = 0, delim = ",")
+            test_x=convert(Matrix, train_data)
+            rate = apply_forest_proba(model, test_x, [1, 2])
+            scream, nonscream = 0, 0
+            for i in 1:length(rate[:, 1])
+                if rate[i, 1] != 0
+                    nonscream += log10(rate[i, 1])
+                else
+                    nonscream -= 6
+                end
+                if rate[i, 2] != 0
+                    scream += log10(rate[i, 2])
+                else
+                    scream -= 6
+                end
+            end
+            if scream > nonscream - x*length(rate)
+                TP += 1
+            else
+                FN += 1
+            end
+        end
+    end
+    df = DataFrame(:a=>["detect_Positive", "detect_Negative"],
+    :Positive => [TP, FN], :Negative => [FP, TN])
+    println(df)
+    break
+end
