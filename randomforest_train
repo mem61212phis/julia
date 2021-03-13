@@ -6,6 +6,6 @@ using WAV, PyCall, Printf, CSV, DataFrames, Plots, DecisionTree, JLD2
     train_x=convert(Matrix, train_data[:,1:end-1])
     train_y=convert(Array, train_data.Column27)
     model = build_forest(train_y, train_x, 5, 20, 1.0, 6)
-    #@save "D:/test/voice_data/model_file.jld2" model
-    accuracy = nfoldCV_forest(train_y, train_x, 5, 20, 4, 0.7)
+    @save "D:/test/voice_data/model_file.jld2" model
+    #accuracy = nfoldCV_forest(train_y, train_x, 5, 20, 4, 0.7)
 end
