@@ -13,13 +13,13 @@ using Plots, WAV, PyCall, Printf, CSV, DataFrames, Plots, DecisionTree, JLD2
 """
 
 @load "D:/test/voice_data/model_file.jld2" model
+TPR, FPR = [], []
 while true
-    TPR, FPR = [], []
     scr_list, nonscr_list = [], []
     x = 0.1
-    for i in 1:300    #test Negative(nonscream)
+    for i in 1:4224    #test Negative(nonscream)
         number = @sprintf("%05d", i)
-        open("D:/test/voice_data/nonscream/test_csv/$number.csv", "r") do f
+        open("D:/test/voice_data/music/$number.csv", "r") do f
             train_data = CSV.read(f, header = 0, delim = ",")
             test_x=convert(Matrix, train_data)
             rate = apply_forest_proba(model, test_x, [1, 2])
@@ -63,14 +63,14 @@ while true
     end
     for i in -35:35
         TP, FN, FP, TN = 0, 0, 0, 0
-        for j in scr_list
-            if j + x*i > 0
+        for j in nonscr_list
+            if j - x*i > 0
                 TN += 1
             else
                 FP += 1
             end
         end
-        for j in nonscr_list
+        for j in scr_list
             if j + x*i > 0
                 TP += 1
             else
@@ -78,8 +78,7 @@ while true
             end
         end
         push!(TPR, TP/(TP+FN))
-        push!(FPR, TN/(TN+FP))
-
+        push!(FPR, FP/(TN+FP))
     end
     println(TPR)
     println(FPR)
