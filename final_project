@@ -1,0 +1,395 @@
+using FFMPEG, Dates, WAV, PyCall, Printf, CSV, DataFrames, Plots, DropboxSDK, DecisionTree, JLD2
+@pyimport python_speech_features
+
+c1Th = 1.795325503692599e7
+c2Th = 1.4213010805183813e7
+c3Th = 2.4198555771192003e7
+c4Th = 9.468777159095554e6
+c5Th = 1.7800624633433748e7
+c6Th = 3.380663317635751e7
+
+camera1 = "rtsp://admin:Aadmin135790@140.138.178.23:59211/unicast/c1/s2/liv"
+camera2 = "rtsp://admin:Aadmin135790@140.138.178.23:59211/unicast/c2/s2/liv"
+camera3 = "rtsp://admin:Aadmin135790@140.138.178.23:59211/unicast/c3/s2/liv"
+camera4 = "rtsp://admin:Aadmin135790@140.138.178.23:59211/unicast/c4/s2/liv"
+camera5 = "rtsp://admin:Aadmin135790@140.138.178.23:59211/unicast/c5/s2/liv"
+camera6 = "rtsp://admin:Aadmin135790@140.138.178.23:59211/unicast/c6/s2/liv"
+
+recordingTime = 10    #錄製時間（秒）
+recordingTime_Str = @sprintf("%d", recordingTime)
+@load "D:/CameraProject/feature05/model_file.jld2" model  #讀取訓練檔
+
+c1 = "01"
+c2 = "02"
+c3 = "03"
+c4 = "04"
+c5 = "05"
+c6 = "06"
+
+function cameraTh(camera)
+    Th = Dict(
+        c1 => log10(c1Th),
+        c2 => log10(c2Th),
+        c3 => log10(c3Th),
+        c4 => log10(c4Th),
+        c5 => log10(c5Th),
+        c6 => log10(c6Th))
+    return Th[camera]
+end
+
+function sixNoise(fileName, num)
+    level = []  #Noise(dB)
+    for i in 1:6
+        push!(level, logDomainEnergyAver(fileName, @sprintf("%02d", i), num))
+    end
+    for i in 1:6
+        push!(level, logDomainEnergyMax(fileName, @sprintf("%02d", i), num))
+    end
+    return level
+end
+
+function logDomainEnergyAver(fileName, camera, num)
+    Th = cameraTh(camera)        #各camera基準
+    number = @sprintf("%04d", num)
+
+    fileDir = fileName*camera*number*".wav" #direction
+    wavdata = wavread(fileDir; format="Int16")
+    fbank_feat, fbank_energy = python_speech_features.base.fbank(wavdata[1], wavdata[2])
+    push!(fbank_energy, fbank_energy[end])
+
+    total = 0
+    for i in 1:length(fbank_energy)
+        total += fbank_energy[i]
+    end
+    return 10 * (log10(total / recordingTime) - Th) #return noise (dB)
+end
+
+function logDomainEnergyMax(fileName, camera, num)
+    Th = cameraTh(camera)        #各camera基準
+    number = @sprintf("%04d", num)
+
+    fileDir = fileName*camera*number*".wav" #direction
+    wavdata = wavread(fileDir; format="Int16")
+    fbank_feat, fbank_energy = python_speech_features.base.fbank(wavdata[1], wavdata[2])
+    push!(fbank_energy, fbank_energy[end])
+
+    max, total = 0, 0
+    for i in 1:length(fbank_energy)
+        if i%100 == 0
+            total += fbank_energy[i]
+            if max < total
+                max = total
+            end
+            total = 0
+        else
+            total += fbank_energy[i]
+        end
+    end
+    return 10 * (log10(max) - Th) #return noise (dB)
+end
+
+function writeCSV(today, levelList, num, time)
+    NoiseFile = "D:/test/csv/noiseLevel"*today*".csv"
+
+    daytime = @sprintf("%04d%02d%02d %02d:%02d:%02d", Dates.year(time), Dates.month(time),
+    Dates.day(time), Dates.hour(time), Dates.minute(time), Dates.second(time))
+    number = @sprintf("%04d", num)
+    df = DataFrame(:DateTime => daytime, :Number => number,
+    :c1_aver => levelList[1], :c2_aver => levelList[2], :c3_aver => levelList[3],
+    :c4_aver => levelList[4], :c5_aver => levelList[5], :c6_aver => levelList[6],
+    :c1_max => levelList[7], :c2_max => levelList[8], :c3_max => levelList[9],
+    :c4_max => levelList[10], :c5_max => levelList[11], :c6_max => levelList[12])
+
+    open(NoiseFile, "a") do file
+        CSV.write(file, df; append=true)
+    end
+end
+
+function sixNoiseAnalysis(fileName, num)
+    level = []
+    for i in 1:6
+        push!(level, logEnergyFeatures(fileName, @sprintf("%02d", i), num))
+    end
+    return level
+end
+
+function logEnergyFeatures(fileName, camera, num)
+    total = 0
+    number = @sprintf("%04d", num)
+    wavDir = fileName*camera*number*".wav" #direction
+
+    wavdata = wavread(wavDir; format="Int16")
+    fbank_feat = python_speech_features.base.logfbank(wavdata[1], wavdata[2])
+    probability = apply_forest_proba(model, fbank_feat, [1, 2])
+
+    for i in 1:size(probability,1)
+        total += probability[i,1]
+    end
+    if total / size(probability,1) >= 0.6
+        return "nonvocal"
+    elseif total / size(probability,1) < 0.4
+        return "vocal"
+    else
+        return "not sure"
+    end
+end
+
+function writeAnalysisCSV(today, levelList, num, time)
+    NoiseFile = "D:/test/analysis/"*today*".csv"
+
+    daytime = @sprintf("%04d%02d%02d %02d:%02d:%02d", Dates.year(time), Dates.month(time),
+    Dates.day(time), Dates.hour(time), Dates.minute(time), Dates.second(time))
+    number = @sprintf("%04d", num)
+    df = DataFrame(:DateTime => daytime, :Number => number,
+    :camera1 => levelList[1], :camera2 => levelList[2], :camera3 => levelList[3],
+    :camera4 => levelList[4], :camera5 => levelList[5], :camera6 => levelList[6],)
+
+    open(NoiseFile, "a") do file
+        CSV.write(file, df; append=true)
+    end
+end
+
+function GeneratePlot(date)
+    csvfile = "D:/test/csv/noiseLevel"*date*".csv"
+    pngfile = "D:/test/png/"*date*".png"
+    pngfile_aver = "D:/test/png/"*date*"_aver.png"
+
+    if isfile(csvfile)
+        print("Yesterday NoiseLevel File exist.")
+    else
+        print("Yesterday NoiseLevel File didn't exist.")
+        return 0
+    end
+    time_label = []
+    time_label_30m = [i*0.5 - 0.25 for i in 1:48]
+    a = zeros(12, 48)
+    open(csvfile, "r") do file
+        df = CSV.read(file, header=1, delim=",")
+        for i in 1:length(df.DateTime)
+            time_hour = Int64(df.DateTime[i][10]-48)*10+Int64(df.DateTime[i][11]-48)+Int64(df.DateTime[i][13]-48)/6+Int64(df.DateTime[i][14]-48)/60
+            push!(time_label, time_hour)
+        end
+        for i in 1:48
+            times = 0
+            for j in 1:length(time_label)
+                if time_label[j] >= (i*0.5 - 0.5) && time_label[j] < i*0.5
+                    a[1, i] += df.c1_aver[j]
+                    a[2, i] += df.c2_aver[j]
+                    a[3, i] += df.c3_aver[j]
+                    a[4, i] += df.c4_aver[j]
+                    a[5, i] += df.c5_aver[j]
+                    a[6, i] += df.c6_aver[j]
+                    a[7, i] += df.c1_max[j]
+                    a[8, i] += df.c2_max[j]
+                    a[9, i] += df.c3_max[j]
+                    a[10, i] += df.c4_max[j]
+                    a[11, i] += df.c5_max[j]
+                    a[12, i] += df.c6_max[j]
+                    times += 1
+                end
+            end
+            for k in 1:12
+                if times != 0
+                    a[k, i] /= times
+                end
+            end
+        end
+        default(xlabel = "Time", ylabel = "Noise (dB)")
+        default(xlims = (0, 24.2), ylims = (0, 62))
+        default(xticks = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24])
+        default(yticks = [10, 20, 30, 40, 50, 60])
+        p1 = plot(time_label, [df.c1_aver df.c1_max], label = ["camera1_aver" "camera1_max"])
+        p2 = plot(time_label, [df.c2_aver df.c2_max], label = ["camera2_aver" "camera2_max"])
+        p3 = plot(time_label, [df.c3_aver df.c3_max], label = ["camera3_aver" "camera3_max"])
+        p4 = plot(time_label, [df.c4_aver df.c4_max], label = ["camera4_aver" "camera4_max"])
+        p5 = plot(time_label, [df.c5_aver df.c5_max], label = ["camera5_aver" "camera5_max"])
+        p6 = plot(time_label, [df.c6_aver df.c6_max], label = ["camera6_aver" "camera6_max"])
+        plot(p1, p2, p3, p4, p5, p6, layout = (2, 3), size = (1620,1080))
+        savefig(pngfile)
+        p1 = plot(time_label_30m, [a[1, 1:end] a[7, 1:end]], label = ["camera1_aver" "camera1_max"])
+        p2 = plot(time_label_30m, [a[2, 1:end] a[8, 1:end]], label = ["camera2_aver" "camera2_max"])
+        p3 = plot(time_label_30m, [a[3, 1:end] a[9, 1:end]], label = ["camera3_aver" "camera3_max"])
+        p4 = plot(time_label_30m, [a[4, 1:end] a[10, 1:end]], label = ["camera4_aver" "camera4_max"])
+        p5 = plot(time_label_30m, [a[5, 1:end] a[11, 1:end]], label = ["camera5_aver" "camera5_max"])
+        p6 = plot(time_label_30m, [a[6, 1:end] a[12, 1:end]], label = ["camera6_aver" "camera6_max"])
+        plot(p1, p2, p3, p4, p5, p6, layout = (2, 3), size = (1620,1080))
+        savefig(pngfile_aver)
+        p1 = plot(time_label, [df.c1_aver df.c1_max], label = ["camera1_aver" "camera1_max"], size = (1620,1080))
+        savefig("D:/test/png/camera/"*date*"-"*c1*".png")
+        p2 = plot(time_label, [df.c2_aver df.c2_max], label = ["camera2_aver" "camera2_max"], size = (1620,1080))
+        savefig("D:/test/png/camera/"*date*"-"*c2*".png")
+        p3 = plot(time_label, [df.c3_aver df.c3_max], label = ["camera3_aver" "camera3_max"], size = (1620,1080))
+        savefig("D:/test/png/camera/"*date*"-"*c3*".png")
+        p4 = plot(time_label, [df.c4_aver df.c4_max], label = ["camera4_aver" "camera4_max"], size = (1620,1080))
+        savefig("D:/test/png/camera/"*date*"-"*c4*".png")
+        p5 = plot(time_label, [df.c5_aver df.c5_max], label = ["camera5_aver" "camera5_max"], size = (1620,1080))
+        savefig("D:/test/png/camera/"*date*"-"*c5*".png")
+        p6 = plot(time_label, [df.c6_aver df.c6_max], label = ["camera6_aver" "camera6_max"], size = (1620,1080))
+        savefig("D:/test/png/camera/"*date*"-"*c6*".png")
+    end
+end
+
+function ffmpeg_Rtsp(number, audioFileDir, recordingTime)
+    num = @sprintf("%04d", number)
+    function ffmpeg_Rtsp_Camera12(reconnect_time = 0)
+        try
+            FFMPEG.exe(`-i $camera1 -map 0 -t $recordingTime -vn -ar 8000 -ac 1 -acodec pcm_s16le $audioFileDir$c1$num.wav -y`)
+            FFMPEG.exe(`-i $camera2 -map 0 -t $recordingTime -vn -ar 8000 -ac 1 -acodec pcm_s16le $audioFileDir$c2$num.wav -y`)
+        catch
+            if reconnect_time < 10
+                reconnect_time += 1
+                print("Reonnect camera 12 for $reconnect_time times")
+                sleep(60)
+                ffmpeg_Rtsp_Camera12(reconnect_time)
+            elseif reconnect_time >= 10
+                reconnect_time = 0
+                print("Connect fail for camera 12")
+            end
+        end
+    end
+    function ffmpeg_Rtsp_Camera34(reconnect_time = 0)
+        try
+            FFMPEG.exe(`-i $camera3 -map 0 -t $recordingTime -vn -ar 8000 -ac 1 -acodec pcm_s16le $audioFileDir$c3$num.wav -y`)
+            FFMPEG.exe(`-i $camera4 -map 0 -t $recordingTime -vn -ar 8000 -ac 1 -acodec pcm_s16le $audioFileDir$c4$num.wav -y`)
+        catch
+            if reconnect_time < 10
+                reconnect_time += 1
+                print("Reonnect camera 34 for $reconnect_time times")
+                sleep(60)
+                ffmpeg_Rtsp_Camera34(reconnect_time)
+            elseif reconnect_time >= 10
+                reconnect_time = 0
+                print("Connect fail for camera 34")
+            end
+        end
+    end
+    function ffmpeg_Rtsp_Camera56(reconnect_time = 0)
+        try
+            FFMPEG.exe(`-i $camera5 -map 0 -t $recordingTime -vn -ar 8000 -ac 1 -acodec pcm_s16le $audioFileDir$c5$num.wav -y`)
+            FFMPEG.exe(`-i $camera6 -map 0 -t $recordingTime -vn -ar 8000 -ac 1 -acodec pcm_s16le $audioFileDir$c6$num.wav -y`)
+        catch
+            if reconnect_time < 10
+                reconnect_time += 1
+                print("Reonnect camera 56 for $reconnect_time times")
+                sleep(60)
+                ffmpeg_Rtsp_Camera56(reconnect_time)
+            elseif reconnect_time >= 10
+                reconnect_time = 0
+                print("Connect fail for camera 56")
+            end
+        end
+    end
+    @sync for i in 1
+        Threads.@spawn ffmpeg_Rtsp_Camera12()
+        Threads.@spawn ffmpeg_Rtsp_Camera34()
+        Threads.@spawn ffmpeg_Rtsp_Camera56()
+    end
+end
+
+function find_Num(audioFileDir)
+    a = readdir(audioFileDir)
+    num = 1
+    for i in 1:length(a)
+        if Int64(a[i][3])*1000 + Int64(a[i][4])*100 + Int64(a[i][5])*10 + Int64(a[i][6]) - 48*1111 > num
+            num = Int64(a[i][3])*1000 + Int64(a[i][4])*100 + Int64(a[i][5])*10 + Int64(a[i][6]) - 48*1111
+        end
+    end
+    function allFile(audioFileDir, num)
+        num04d = @sprintf("%04d", num)
+        if num == 0
+            return 1
+        elseif isfile("$audioFileDir/01"*num04d*".wav") &&
+        isfile("$audioFileDir/02"*num04d*".wav") &&
+        isfile("$audioFileDir/03"*num04d*".wav") &&
+        isfile("$audioFileDir/04"*num04d*".wav") &&
+        isfile("$audioFileDir/05"*num04d*".wav") &&
+        isfile("$audioFileDir/06"*num04d*".wav")
+            return num+1
+        else
+            num -= 1
+            allFile(audioFileDir, num)
+        end
+    end
+    return allFile(audioFileDir, num)
+end
+
+while true
+    #init
+    today_mmdd = "0318"
+    audioFileDir = "D:/test/wav/$today_mmdd/"
+    if !isdir(audioFileDir)
+        mkdir(audioFileDir)
+    end
+    if !isfile("D:/test/csv/noiseLevel$today_mmdd.csv")
+        touch("D:/test/csv/noiseLevel$today_mmdd.csv")
+        df_init = DataFrame(DateTime = [], Number = [],
+        c1_aver = [], c2_aver = [], c3_aver = [], c4_aver = [], c5_aver = [], c6_aver = [],
+        c1_max = [], c2_max = [], c3_max = [], c4_max = [], c5_max = [], c6_max = [])
+        CSV.write("D:/test/csv/noiseLevel$today_mmdd.csv", df_init)
+    end
+    if !isfile("D:/test/analysis/$today_mmdd.csv")
+        touch("D:/test/analysis/$today_mmdd.csv")
+        df_init = DataFrame(DateTime = [], Number = [],
+        camera1 = [], camera2 = [], camera3 = [], camera4 = [], camera5 = [], camera6 = [])
+        CSV.write("D:/test/analysis/$today_mmdd.csv", df_init)
+    end
+    number = 1
+
+    while true
+        if today_mmdd != @sprintf("%02d%02d", Dates.month(now()), Dates.day(now()))
+            GeneratePlot(today_mmdd)
+            try
+                open("D:/test/png/$today_mmdd.png", "r")do f
+                    files_upload(get_authorization(), "/test/$today_mmdd.png", read(f))
+                end
+                open("D:/test/png/$today_mmdd"*"_aver.png", "r")do f
+                    files_upload(get_authorization(), "/test/$today_mmdd"*"_aver.png", read(f))
+                end
+            catch
+                println("$today_mmdd.png upload ERROR")
+            end
+            try
+                open("D:/test/csv/noiseLevel$today_mmdd.csv", "r")do f
+                    files_upload(get_authorization(), "/test/noiseLevel$today_mmdd.csv", read(f))
+                end
+            catch
+                println("/noiseLevel$today_mmdd.csv upload ERROR")
+            end
+
+            today_mmdd = @sprintf("%02d%02d", Dates.month(now()), Dates.day(now()))
+            audioFileDir = "D:/test/wav/"*today_mmdd*"/" #檔案儲存路徑（根據日期）
+            if !isdir(audioFileDir)
+                mkdir(audioFileDir)
+            end
+            if !isfile("D:/test/csv/noiseLevel$today_mmdd.csv")
+                touch("D:/test/csv/noiseLevel$today_mmdd.csv")
+                df_init = DataFrame(DateTime = [], Number = [],
+                c1_aver = [], c2_aver = [], c3_aver = [], c4_aver = [], c5_aver = [], c6_aver = [],
+                c1_max = [], c2_max = [], c3_max = [], c4_max = [], c5_max = [], c6_max = [])
+                CSV.write("D:/test/csv/noiseLevel"*today_mmdd*".csv", df_init)
+            end
+            if !isfile("D:/test/analysis/$today_mmdd.csv")
+                touch("D:/test/analysis/$today_mmdd.csv")
+                df_init = DataFrame(DateTime = [], Number = [],
+                camera1 = [], camera2 = [], camera3 = [], camera4 = [], camera5 = [], camera6 = [])
+                CSV.write("D:/test/analysis/$today_mmdd.csv", df_init)
+            end
+        end
+
+        number = find_Num(audioFileDir)
+        time_now = now()
+        ffmpeg_Rtsp(number, audioFileDir, recordingTime_Str)
+        try
+            noiseLevellist = sixNoise(audioFileDir, number)
+            writeCSV(today_mmdd, noiseLevellist, number, time_now)
+            noiseAnalysislist = sixNoiseAnalysis(audioFileDir, number)
+            writeAnalysisCSV(today_mmdd, noiseAnalysislist, number, time_now)
+        catch
+            println("wav ERROR, can't write CSV.")
+        end
+
+        println("sleep for 20 seconds")
+        sleep(20)
+    end
+    break
+end
